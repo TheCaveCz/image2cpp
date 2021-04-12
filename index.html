@@ -295,6 +295,7 @@
 						<div class="table-cell">
 							<select id="outputFormat" name="outputFormat" onchange="updateOutputFormat(this)">
 								<option value="plain">plain bytes</option>
+								<option value="display_image">DisplayImage</option>
 								<option value="arduino">Arduino code</option>
 								<option value="arduino_single">Arduino code, single bitmap</option>
 								<option value="adafruit_gfx">Adafruit GFXbitmapFont</option>
@@ -347,6 +348,7 @@
 						<div class="table-cell">
 							<select id="drawMode" name="drawMode" onchange="updateDrawMode(this)">
 								<option value="horizontal1bit">Horizontal - 1 bit per pixel</option>
+								<option value="horizontal1bitpacked" selected>Horizontal - 1 bit per pixel (packed)</option>
 								<option value="vertical1bit">Vertical - 1 bit per pixel</option>
 								<option value="horizontal565">Horizontal - 2 bytes per pixel (565)</option>
 								<option value="horizontalAlpha">Horizontal - 1 bit per pixel alpha map</option>
@@ -375,7 +377,7 @@
 	<script type="text/javascript">	
 		var ConversionFunctions = {
 			// Output the image as a string for horizontally drawing displays
-			horizontal1bit: function (data, canvasWidth, canvasHeight){
+			horizontal1bit: function (data, canvasWidth, canvasHeight, packed){
 				var output_string = "";
 				var output_index = 0;
 
@@ -393,7 +395,7 @@
 
 					// if this was the last pixel of a row or the last pixel of the
 					// image, fill up the rest of our byte with zeros so it always contains 8 bits
-					if ((index != 0 && (((index/4)+1)%(canvasWidth)) == 0 ) || (index == data.length-4)) {
+					if ((index != 0 && !packed && (((index/4)+1)%(canvasWidth)) == 0 ) || (index == data.length-4)) {
 						// for(var i=byteIndex;i>-1;i--){
 							// number += Math.pow(2, i);
 						// }
@@ -416,6 +418,11 @@
 					}
 				}
 				return output_string;
+			},
+
+			// Output the image as a string for horizontally drawing displays without aligning to byte boundary when row ends
+			horizontal1bitpacked: function(data, canvasWidth, canvasHeight) {
+				return ConversionFunctions.horizontal1bit(data, canvasWidth, canvasHeight, true);
 			},
 
 
@@ -619,7 +626,7 @@
 			threshold: 128,
 			outputFormat: "plain",
 			invertColors: false,
-			conversionFunction: ConversionFunctions.horizontal1bit
+			conversionFunction: ConversionFunctions.horizontal1bitpacked
 		};
 
 		// Variable name, when "arduino code" is required
@@ -673,21 +680,7 @@
 
 		function updateDrawMode(elm) {
 			var note = document.getElementById("note1bit");
-			if(elm.value == "horizontal1bit" || elm.value == "vertical1bit") {
-				note.style.display = "block";
-			} else {
-				note.style.display = "none";
-			}
-
-			var conversionFunction = ConversionFunctions[elm.value];
-			if(conversionFunction) {
-				settings.conversionFunction = conversionFunction;
-			}
-		}
-
-		function updateDrawMode(elm) {
-			var note = document.getElementById("note1bit");
-			if(elm.value == "horizontal1bit" || elm.value == "vertical1bit") {
+			if(elm.value == "horizontal1bit" || elm.value == "horizontal1bitpacked" || elm.value == "vertical1bit") {
 				note.style.display = "block";
 			} else {
 				note.style.display = "none";
@@ -791,7 +784,7 @@
 				break;
 			}
 			// Make sure the image is black and white
-			if(settings.conversionFunction == ConversionFunctions.horizontal1bit
+			if(settings.conversionFunction == ConversionFunctions.horizontal1bit || settings.conversionFunction == ConversionFunctions.horizontal1bitpacked
 				|| settings.conversionFunction == ConversionFunctions.vertical1bit) {
 				blackAndWhite(canvas, ctx);
 				if(settings["invertColors"]){
@@ -1001,6 +994,28 @@
 
 			switch(settings["outputFormat"]) {
 
+				case "display_image": {
+
+					images.each(function(image) {
+						code = imageToString(image);
+
+						// Trim whitespace from end and remove trailing comma
+						code = code.replace(/,\s*$/,"");
+
+						code = "\t" + code.split("\n").join("\n\t") + "\n";
+						var variableCount = images.length() > 1 ? count++ : "";
+						var comment = "// '" + image.glyph + "', "+image.canvas.width+"x"+image.canvas.height+"px\n";
+
+						code = comment +
+								"const " + getType() + " " + getIdentifier() + variableCount + "Data[] = {\n" +	code + "};\n" +
+								"const DisplayImage " +	getIdentifier() + variableCount +
+								" = {" + image.canvas.width + ", " + image.canvas.height + ", "+ getIdentifier() + variableCount +"Data};\n\n";
+
+						output_string += code;
+					});
+					break;
+				}
+
 				case "arduino": {
 
 					images.each(function(image) {
@@ -1034,8 +1049,7 @@
 					});
 
 					output_string = output_string.replace(/,\s*$/,"");
-
-					output_string = "const " + getType() + " " +
+					output_string = "const " + getType() + " "
 						+ getIdentifier()
 						+ " [] PROGMEM = {"
 						+ "\n" + output_string + "\n};";
